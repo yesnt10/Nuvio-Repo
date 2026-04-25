@@ -3,7 +3,7 @@
 // Yazar: cs-kraptor portunu Nuvio JS'e çeviri
 // Not: Hermes engine uyumlu - async/await YOK, Promise chain kullanılıyor
 
-var DIZIPAL_BASE = "https://dizipal1206.com";
+var DIZIPAL_BASE = "https://dizipal1549.com/";
 
 // DiziPal domain'i sık değiştiğinden, redirect takip ederek güncel adresi buluyoruz
 function resolveBaseUrl() {
