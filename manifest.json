@@ -14,6 +14,19 @@
       "formats": ["mp4", "mkv", "hls", "m3u8", "embed", "iframe"], 
       "logo": "https://www.google.com/s2/favicons?domain=asyafanatiklerim.com&sz=128",
       "contentLanguage": ["tr"]
+    },
+    {
+      "id": "diziyou",
+      "name": "DiziYou",
+      "description": "Diziyou en kaliteli Türkçe dublaj ve altyazılı yabancı dizi izleme sitesidir.",
+      "version": "1.0.4",
+      "author": "MoOnCrOwN",
+      "supportedTypes": ["tv"],
+      "filename": "providers/diziyou.js",
+      "enabled": true,
+      "formats": ["m3u8"],
+      "logo": "https://www.google.com/s2/favicons?domain=www.diziyou.co&sz=%size%",
+      "contentLanguage": ["tr"]
     }
   ]
 }
