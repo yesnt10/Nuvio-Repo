@@ -5,14 +5,14 @@
     {
       "id": "asyafanatiklerim",
       "name": "AsyaFanatiklerim",
-      "description": "Kore, Japon, Cin, Tayvan ve Tayland dizilerini Turkce altyazili olarak sunar.",
+      "description": "Asya dizilerini Turkce altyazili sunar.",
       "version": "1.0.0",
       "author": "MoOnCrOwN",
       "supportedTypes": ["tv"],
       "filename": "providers/asyafanatiklerim.js",
       "enabled": true,
-      "formats": ["mp4", "mkv", "hls", "m3u8"],
-      "logo": "https://www.google.com/s2/favicons?domain=asyafanatiklerim.com&sz=%size%",
+      "formats": ["mp4", "mkv", "hls", "m3u8", "embed", "iframe"], 
+      "logo": "https://www.google.com/s2/favicons?domain=asyafanatiklerim.com&sz=128",
       "contentLanguage": ["tr"]
     }
   ]
