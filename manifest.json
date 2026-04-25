@@ -5,7 +5,7 @@
     {
       "id": "asyafanatiklerim",
       "name": "AsyaFanatiklerim",
-      "description": "Kore, Japon, Çin, Tayvan ve Tayland dizilerini Türkçe altyazılı olarak sunar.",
+      "description": "Kore, Japon, Cin, Tayvan ve Tayland dizilerini Turkce altyazili olarak sunar.",
       "version": "1.0.0",
       "author": "MoOnCrOwN",
       "supportedTypes": ["tv"],
