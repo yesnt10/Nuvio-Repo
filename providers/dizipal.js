@@ -1,305 +1,264 @@
-// DiziPal Nuvio Provider
-// Kaynak: dizipal[N].com (sürekli değişen domain)
-// Yazar: cs-kraptor portunu Nuvio JS'e çeviri
-// Not: Hermes engine uyumlu - async/await YOK, Promise chain kullanılıyor
+// DiziPal Nuvio Provider v2
+// Hermes engine uyumlu - Promise chain, async/await YOK
 
-var DIZIPAL_BASE = "https://dizipal1549.com/";
+var BASE_URL = "https://dizipal.im";
 
-// DiziPal domain'i sık değiştiğinden, redirect takip ederek güncel adresi buluyoruz
-function resolveBaseUrl() {
-  var candidates = [
-    "https://dizipal1206.com",
-    "https://dizipal1999.com",
-    "https://dizipal810.site",
-    "https://dizipalorjinal.com"
-  ];
-
-  function tryNext(index) {
-    if (index >= candidates.length) {
-      return Promise.resolve(DIZIPAL_BASE);
-    }
-    return fetch(candidates[index], {
-      method: "HEAD",
-      redirect: "follow"
-    })
-      .then(function(res) {
-        if (res.ok || res.status === 200) {
-          var finalUrl = res.url || candidates[index];
-          var match = finalUrl.match(/^(https?:\/\/[^\/]+)/);
-          DIZIPAL_BASE = match ? match[1] : candidates[index];
-          return DIZIPAL_BASE;
-        }
-        return tryNext(index + 1);
-      })
-      .catch(function() {
-        return tryNext(index + 1);
-      });
-  }
-
-  return tryNext(0);
-}
-
-// TMDB ID'den DiziPal sayfasını bul
-function searchByTmdb(tmdbId, mediaType, baseUrl) {
-  var apiUrl = baseUrl + "/api/search?tmdb=" + tmdbId + "&type=" + (mediaType === "tv" ? "series" : "movie");
-
-  return fetch(apiUrl, {
-    headers: {
-      "Referer": baseUrl + "/",
-      "X-Requested-With": "XMLHttpRequest",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
+// TMDB'den başlık bilgisi çek
+function getTmdbTitle(tmdbId, mediaType) {
+  var type = mediaType === "tv" ? "tv" : "movie";
+  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?language=tr-TR";
+  return fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" }
   })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-      if (data && data.results && data.results.length > 0) {
-        return data.results[0].slug || data.results[0].url || null;
-      }
-      return null;
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      return {
+        title: d.name || d.title || "",
+        originalTitle: d.original_name || d.original_title || ""
+      };
     })
-    .catch(function() { return null; });
+    .catch(function() { return { title: "", originalTitle: "" }; });
 }
 
-// Siteyi HTML arama ile tara (API çalışmazsa fallback)
-function searchByHtml(title, mediaType, baseUrl) {
-  var searchUrl = baseUrl + "/?s=" + encodeURIComponent(title);
+// Slug oluştur: "Breaking Bad" -> "breaking-bad"
+function toSlug(str) {
+  return str
+    .toLowerCase()
+    .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s")
+    .replace(/ı/g, "i").replace(/ö/g, "o").replace(/ç/g, "c")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
+// DiziPal arama
+function searchDizipal(query, mediaType) {
+  var searchUrl = BASE_URL + "/?s=" + encodeURIComponent(query);
   return fetch(searchUrl, {
     headers: {
-      "Referer": baseUrl + "/",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Referer": BASE_URL + "/"
     }
   })
-    .then(function(res) { return res.text(); })
+    .then(function(r) { return r.text(); })
     .then(function(html) {
-      // İlk sonuç kartının URL'sini çek
-      var match = html.match(/href="(https?:\/\/[^"]*dizipal[^"]*\/(?:dizi|film)\/[^"]+)"/i);
+      // href="/dizi/..." veya href="/film/..." pattern
+      var type = mediaType === "tv" ? "dizi" : "film";
+      var re = new RegExp('href="(' + BASE_URL + '\\/' + type + '\\/[^\\"]+?)\\"', 'gi');
+      var match = re.exec(html);
       if (match) return match[1];
 
-      // Alternatif pattern
-      var match2 = html.match(/class="[^"]*poster[^"]*"[^>]*href="([^"]+)"/i);
-      if (match2) return match2[1];
+      // BASE_URL olmadan da dene
+      var re2 = new RegExp('href="(\\/' + type + '\\/[^\\"]+?)\\"', 'i');
+      var m2 = html.match(re2);
+      if (m2) return BASE_URL + m2[1];
 
       return null;
     })
     .catch(function() { return null; });
 }
 
-// Dizi sayfasından belirli sezon/bölüm URL'sini bul
-function getEpisodeUrl(seriesPageUrl, season, episode, baseUrl) {
-  return fetch(seriesPageUrl, {
+// Dizi sayfasından bölüm URL'si bul
+function getEpisodeUrl(seriesUrl, season, episode) {
+  return fetch(seriesUrl, {
     headers: {
-      "Referer": baseUrl + "/",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Referer": BASE_URL + "/"
     }
   })
-    .then(function(res) { return res.text(); })
+    .then(function(r) { return r.text(); })
     .then(function(html) {
-      // Bölüm linkleri genellikle /dizi/[slug]/[sezon]-sezon-[bolum]-bolum şeklinde
-      var pattern = new RegExp(
-        'href="([^"]*/' + season + '-sezon-' + episode + '-bolum[^"]*)"',
+      // Pattern: /dizi/breaking-bad/1-sezon-1-bolum
+      var re = new RegExp(
+        'href="([^"]*\\/' + season + '-sezon-' + episode + '-bolum[^"]*)"',
         'i'
       );
-      var match = html.match(pattern);
-      if (match) return match[1];
-
-      // Alternatif: data-* attribute
-      var pattern2 = new RegExp(
-        'data-url="([^"]*sezon-' + season + '[^"]*bolum-' + episode + '[^"]*)"',
-        'i'
-      );
-      var match2 = html.match(pattern2);
-      if (match2) return match2[1];
-
-      // Alternatif: episode listesi
-      var epPattern = /href="([^"]+)" [^>]*class="[^"]*episode[^"]*"/gi;
-      var allEps = [];
-      var m;
-      while ((m = epPattern.exec(html)) !== null) {
-        allEps.push(m[1]);
+      var m = html.match(re);
+      if (m) {
+        return m[1].startsWith('http') ? m[1] : BASE_URL + m[1];
       }
-      // Season/episode hesapla - genelde lineer sıralama
-      var epIndex = (season - 1) * 100 + (episode - 1);
-      if (allEps[epIndex]) return allEps[epIndex];
+
+      // Alternatif: sezon-1-bolum-1
+      var re2 = new RegExp(
+        'href="([^"]*sezon-' + season + '[^"]*bolum-' + episode + '[^"]*)"',
+        'i'
+      );
+      var m2 = html.match(re2);
+      if (m2) {
+        return m2[1].startsWith('http') ? m2[1] : BASE_URL + m2[1];
+      }
+
+      // Direkt URL tahmini
+      var slugMatch = seriesUrl.match(/\/dizi\/([^\/]+)/);
+      if (slugMatch) {
+        return BASE_URL + "/dizi/" + slugMatch[1] + "/" + season + "-sezon-" + episode + "-bolum";
+      }
 
       return null;
     })
     .catch(function() { return null; });
 }
 
-// Video sayfasından stream URL'lerini çıkar
-function extractStreams(pageUrl, baseUrl) {
+// Sayfadan stream URL çıkar
+function extractFromPage(pageUrl) {
   return fetch(pageUrl, {
     headers: {
-      "Referer": baseUrl + "/",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Referer": BASE_URL + "/"
     }
   })
-    .then(function(res) { return res.text(); })
+    .then(function(r) { return r.text(); })
     .then(function(html) {
       var streams = [];
 
-      // 1. m3u8 direkt
-      var m3u8Matches = html.match(/['"]([^'"]*\.m3u8[^'"]*)['"]/g) || [];
-      m3u8Matches.forEach(function(m) {
-        var url = m.replace(/['"]/g, '');
-        if (url.startsWith('http') && streams.findIndex(function(s){return s.url===url;}) === -1) {
-          streams.push({
-            name: "DiziPal",
-            title: "HLS",
-            url: url,
-            quality: url.indexOf("1080") !== -1 ? "1080p" : url.indexOf("720") !== -1 ? "720p" : "HD",
-            headers: { "Referer": baseUrl + "/" }
-          });
+      // iframe src
+      var iframes = [];
+      var iRe = /<iframe[^>]+src=["']([^"']+)["']/gi;
+      var im;
+      while ((im = iRe.exec(html)) !== null) {
+        var src = im[1];
+        if (!src.startsWith('http')) src = BASE_URL + src;
+        iframes.push(src);
+      }
+
+      if (iframes.length === 0) {
+        // m3u8/mp4 direkt
+        var d1 = html.match(/["']([^"']*\.m3u8[^"']*?)["']/);
+        if (d1 && d1[1].startsWith('http')) {
+          streams.push({ name: "DiziPal", title: "HD", url: d1[1], quality: "HD", headers: { "Referer": pageUrl } });
         }
-      });
-
-      // 2. iframe embed'i - vidmoly, fembed, vk gibi
-      var iframeMatch = html.match(/<iframe[^>]+src="([^"]+)"/i);
-      if (iframeMatch) {
-        var iframeSrc = iframeMatch[1];
-        if (!iframeSrc.startsWith('http')) {
-          iframeSrc = baseUrl + iframeSrc;
+        var d2 = html.match(/file\s*:\s*["']([^"']+)["']/);
+        if (d2 && d2[1].startsWith('http')) {
+          streams.push({ name: "DiziPal", title: "HD", url: d2[1], quality: "HD", headers: { "Referer": pageUrl } });
         }
-        // Vidmoly, Fembed gibi player'lar için ikincil fetch
-        return fetch(iframeSrc, {
-          headers: {
-            "Referer": pageUrl,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          }
-        })
-          .then(function(r) { return r.text(); })
-          .then(function(iframeHtml) {
-            // m3u8
-            var innerM3u8 = iframeHtml.match(/['"]([^'"]*\.m3u8[^'"]*)['"]/g) || [];
-            innerM3u8.forEach(function(m) {
-              var url = m.replace(/['"]/g, '');
-              if (url.startsWith('http')) {
-                streams.push({
-                  name: "DiziPal",
-                  title: "HLS (embed)",
-                  url: url,
-                  quality: url.indexOf("1080") !== -1 ? "1080p" : "HD",
-                  headers: {
-                    "Referer": iframeSrc,
-                    "Origin": new URL(iframeSrc).origin
-                  }
-                });
-              }
-            });
+        return streams;
+      }
 
-            // mp4 direkt
-            var mp4Matches = iframeHtml.match(/['"]([^'"]*\.mp4[^'"]*)['"]/g) || [];
-            mp4Matches.forEach(function(m) {
-              var url = m.replace(/['"]/g, '');
-              if (url.startsWith('http')) {
-                streams.push({
-                  name: "DiziPal",
-                  title: "MP4",
-                  url: url,
-                  quality: url.indexOf("1080") !== -1 ? "1080p" : url.indexOf("720") !== -1 ? "720p" : "SD",
-                  headers: { "Referer": iframeSrc }
-                });
-              }
-            });
+      // İlk iframe'i fetch et
+      var iframeSrc = iframes[0];
+      return fetch(iframeSrc, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Referer": pageUrl
+        }
+      })
+        .then(function(r2) { return r2.text(); })
+        .then(function(iHtml) {
+          var origin = iframeSrc.match(/^(https?:\/\/[^\/]+)/);
+          var ref = origin ? origin[1] : iframeSrc;
 
-            // jwplayer setup
-            var jwMatch = iframeHtml.match(/file\s*:\s*['"]([^'"]+)['"]/);
-            if (jwMatch && jwMatch[1].startsWith('http')) {
+          // m3u8
+          var ms = iHtml.match(/["']([^"']*\.m3u8[^"']*?)["']/g) || [];
+          ms.forEach(function(u) {
+            var url = u.replace(/["']/g, '');
+            if (url.startsWith('http')) {
               streams.push({
                 name: "DiziPal",
-                title: "JWPlayer",
-                url: jwMatch[1],
-                quality: "HD",
-                headers: { "Referer": iframeSrc }
+                title: url.indexOf('1080') !== -1 ? '1080p' : url.indexOf('720') !== -1 ? '720p' : 'HD',
+                url: url,
+                quality: url.indexOf('1080') !== -1 ? '1080p' : 'HD',
+                headers: { "Referer": ref, "Origin": ref }
               });
             }
+          });
 
-            return streams;
-          })
-          .catch(function() { return streams; });
-      }
+          // mp4
+          var mp = iHtml.match(/["']([^"']*\.mp4[^"']*?)["']/g) || [];
+          mp.forEach(function(u) {
+            var url = u.replace(/["']/g, '');
+            if (url.startsWith('http')) {
+              streams.push({
+                name: "DiziPal",
+                title: 'MP4',
+                url: url,
+                quality: url.indexOf('1080') !== -1 ? '1080p' : 'HD',
+                headers: { "Referer": ref }
+              });
+            }
+          });
 
-      // 3. jwplayer / videojs direkt sayfada
-      var jwDirect = html.match(/file\s*:\s*['"]([^'"]+\.(?:m3u8|mp4)[^'"]*)['"]/);
-      if (jwDirect && jwDirect[1].startsWith('http')) {
-        streams.push({
-          name: "DiziPal",
-          title: "Direkt",
-          url: jwDirect[1],
-          quality: "HD",
-          headers: { "Referer": pageUrl }
-        });
-      }
-
-      // 4. sources array (video.js tarzı)
-      var sourcesMatch = html.match(/sources\s*:\s*\[([^\]]+)\]/);
-      if (sourcesMatch) {
-        var srcBlock = sourcesMatch[1];
-        var srcUrls = srcBlock.match(/['"]([^'"]*https[^'"]+\.(?:m3u8|mp4)[^'"]*)['"]/g) || [];
-        srcUrls.forEach(function(s) {
-          var url = s.replace(/['"]/g, '');
-          if (url.startsWith('http')) {
+          // jwplayer file
+          var jw = iHtml.match(/file\s*:\s*["']([^"']+)["']/);
+          if (jw && jw[1].startsWith('http')) {
             streams.push({
               name: "DiziPal",
-              title: "Source",
-              url: url,
-              quality: url.indexOf("1080") !== -1 ? "1080p" : "HD",
-              headers: { "Referer": pageUrl }
+              title: "JW",
+              url: jw[1],
+              quality: "HD",
+              headers: { "Referer": ref }
             });
           }
-        });
-      }
 
-      return streams;
+          // sources array
+          var sa = iHtml.match(/sources\s*:\s*\[([\s\S]*?)\]/);
+          if (sa) {
+            var su = sa[1].match(/["']([^"']*https[^"']+\.(?:m3u8|mp4)[^"']*)["']/g) || [];
+            su.forEach(function(u) {
+              var url = u.replace(/["']/g, '');
+              streams.push({
+                name: "DiziPal",
+                title: "Source",
+                url: url,
+                quality: "HD",
+                headers: { "Referer": ref }
+              });
+            });
+          }
+
+          return streams;
+        })
+        .catch(function() { return streams; });
     })
     .catch(function() { return []; });
 }
 
-// Ana fonksiyon - Nuvio'nun çağırdığı tek entry point
+// Ana fonksiyon
 function getStreams(tmdbId, mediaType, season, episode) {
-  console.log("[DiziPal] Araniyor: tmdb=" + tmdbId + " tur=" + mediaType +
+  console.log("[DiziPal] tmdb=" + tmdbId + " type=" + mediaType +
     (season ? " S" + season + "E" + episode : ""));
 
-  return resolveBaseUrl()
-    .then(function(baseUrl) {
-      // Önce TMDB API ile dene
-      return searchByTmdb(tmdbId, mediaType, baseUrl)
-        .then(function(slug) {
-          if (!slug) return null;
-          // slug mutlak URL mi yoksa path mi?
-          if (slug.startsWith('http')) return slug;
-          return baseUrl + "/" + slug.replace(/^\//, '');
+  return getTmdbTitle(tmdbId, mediaType)
+    .then(function(info) {
+      var title = info.title || info.originalTitle;
+      if (!title) {
+        console.log("[DiziPal] Baslik alinamadi");
+        return [];
+      }
+      console.log("[DiziPal] Baslik: " + title);
+
+      // Önce Türkçe başlıkla ara, bulamazsa orijinalle
+      return searchDizipal(title, mediaType)
+        .then(function(url) {
+          if (!url && info.originalTitle && info.originalTitle !== title) {
+            return searchDizipal(info.originalTitle, mediaType);
+          }
+          return url;
         })
         .then(function(contentUrl) {
           if (!contentUrl) {
-            // TMDB API çalışmadıysa - şimdilik null döndür
-            // İleri aşamada TMDB'den title çekip HTML arama yapılabilir
-            console.log("[DiziPal] Icerik bulunamadi: " + tmdbId);
-            return [];
+            // Slug tahmini ile direkt dene
+            var slug = toSlug(info.originalTitle || title);
+            var type = mediaType === "tv" ? "dizi" : "film";
+            contentUrl = BASE_URL + "/" + type + "/" + slug;
+            console.log("[DiziPal] Slug tahmini: " + contentUrl);
           }
 
-          // Film mi dizi mi?
           if (mediaType === "movie") {
-            return extractStreams(contentUrl, baseUrl);
-          } else {
-            // TV: önce dizi ana sayfasına git, sonra bölümü bul
-            return getEpisodeUrl(contentUrl, season, episode, baseUrl)
-              .then(function(episodeUrl) {
-                if (!episodeUrl) {
-                  console.log("[DiziPal] Bolum bulunamadi: S" + season + "E" + episode);
-                  return [];
-                }
-                var fullEpUrl = episodeUrl.startsWith('http')
-                  ? episodeUrl
-                  : baseUrl + "/" + episodeUrl.replace(/^\//, '');
-                return extractStreams(fullEpUrl, baseUrl);
-              });
+            return extractFromPage(contentUrl);
           }
+
+          return getEpisodeUrl(contentUrl, season, episode)
+            .then(function(epUrl) {
+              if (!epUrl) {
+                console.log("[DiziPal] Bolum bulunamadi");
+                return [];
+              }
+              console.log("[DiziPal] Bolum URL: " + epUrl);
+              return extractFromPage(epUrl);
+            });
         });
     })
-    .catch(function(err) {
-      console.error("[DiziPal] Hata: " + err.message);
+    .catch(function(e) {
+      console.error("[DiziPal] Hata: " + (e.message || e));
       return [];
     });
 }
