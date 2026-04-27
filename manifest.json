@@ -1,27 +1,19 @@
 {
-  "name": "Ali-NUVİO",
-  "version": "0.6",
+  "name": "MoOnCrOwN-NUVİO",
+  "version": "0.4",
   "scrapers": [
     {
-      "id": "dizipal",
-      "name": "DiziPal",
-      "description": "En yeni dizileri güvenli ve hızlı şekilde sunar. (cs-kraptor portlanması)",
-      "version": "1.0.0",
-      "author": "port: cs-kraptor / nuvio: kraptor",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/dizipal.js",
+      "id": "dizimag",
+      "name": "DiziMag",
+      "description": "DiziMag film ve dizi scraper - CloudStream .cs3'ten dönüştürüldü",
+      "version": "44.0.0",
+      "author": "Converted from CloudStream",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/DiziMag.js",
       "enabled": true,
-      "formats": [
-        "m3u8",
-        "mp4"
-      ],
-      "logo": "https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://dizipal1206.com&size=128",
-      "contentLanguage": [
-        "tr"
-      ]
+      "formats": ["mp4", "mkv", "hls", "m3u8"],
+      "logo": "",
+      "contentLanguage": ["tr"]
     }
   ]
 }
