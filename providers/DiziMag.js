@@ -5,7 +5,6 @@
  */
 
 var cheerio = require("cheerio-without-node-native");
-var crypto = require("crypto");
 
 const BASE_URL = "https://dizimag.pw";
 
@@ -16,87 +15,65 @@ const WORKING_HEADERS = {
     'Origin': BASE_URL
 };
 
-// OpenSSL KDF implementation for key derivation
-function opensslKdf(password, salt) {
-    const md5 = (data) => {
-        const hash = crypto.createHash('md5');
-        hash.update(data);
-        return hash.digest();
-    };
-    
-    const passBytes = Buffer.from(password, 'utf8');
-    let keyIv = Buffer.alloc(0);
-    let prev = Buffer.alloc(0);
-    
-    while (keyIv.length < 48) {
-        prev = md5(Buffer.concat([prev, passBytes, salt]));
-        keyIv = Buffer.concat([keyIv, prev]);
-    }
-    
-    return keyIv;
-}
-
-// Convert hex string to bytes
-function hexToBytes(hex) {
-    const bytes = [];
-    for (let i = 0; i < hex.length; i += 2) {
-        bytes.push(parseInt(hex.substr(i, 2), 16));
-    }
-    return Buffer.from(bytes);
-}
-
-// AES-256-CBC decryption
-function decryptAES(ciphertext, key, iv) {
+// Base64 decode helper
+function base64Decode(str) {
     try {
-        const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-        decipher.setAutoPadding(true);
-        let decrypted = decipher.update(ciphertext);
-        decrypted = Buffer.concat([decrypted, decipher.final()]);
-        return decrypted.toString('utf8');
+        return atob(str);
     } catch (e) {
-        console.error("Decryption error:", e);
         return null;
     }
 }
 
-// Extract video location from encrypted JSON
+// Extract video location from page (simplified without crypto)
 async function extractVideoLocation(iframeUrl) {
     try {
         const response = await fetch(iframeUrl, { headers: WORKING_HEADERS });
         const html = await response.text();
         const $ = cheerio.load(html);
         
-        // Find the encrypted data in the page
-        const scriptContent = $('script').filter(function() {
-            return $(this).html().includes('ct') || $(this).html().includes('iv');
-        }).html();
+        // Try to find direct video URLs in the page
+        // Method 1: Look for video sources in video tags
+        const videoSrc = $('video source').attr('src');
+        if (videoSrc) {
+            return videoSrc.startsWith('http') ? videoSrc : (videoSrc.startsWith('//') ? 'https:' + videoSrc : null);
+        }
         
-        if (!scriptContent) return null;
+        // Method 2: Look for iframe src
+        const iframeSrc = $('iframe').attr('src');
+        if (iframeSrc) {
+            return iframeSrc.startsWith('http') ? iframeSrc : (iframeSrc.startsWith('//') ? 'https:' + iframeSrc : null);
+        }
         
-        // Try to extract the cipher data
-        const ctMatch = scriptContent.match(/"ct"\s*:\s*"([^"]+)"/);
-        const ivMatch = scriptContent.match(/"iv"\s*:\s*"([^"]+)"/);
-        const sMatch = scriptContent.match(/"s"\s*:\s*"([^"]+)"/);
+        // Method 3: Look for m3u8 URLs in scripts
+        const scripts = $('script').map(function() {
+            return $(this).html();
+        }).get();
         
-        if (!ctMatch || !ivMatch || !sMatch) return null;
+        for (const script of scripts) {
+            if (script) {
+                const m3u8Match = script.match(/https?:[^"'\s]+\.m3u8[^"'\s]*/);
+                if (m3u8Match) {
+                    return m3u8Match[0];
+                }
+                const mp4Match = script.match(/https?:[^"'\s]+\.mp4[^"'\s]*/);
+                if (mp4Match) {
+                    return mp4Match[0];
+                }
+            }
+        }
         
-        const ct = ctMatch[1];
-        const iv = ivMatch[1];
-        const s = sMatch[1];
+        // Method 4: Try to find JSON data with video_location
+        const jsonMatch = html.match(/"video_location"\s*:\s*"([^"]+)"/);
+        if (jsonMatch) {
+            return jsonMatch[1];
+        }
         
-        // Decrypt using the key
-        const salt = hexToBytes(iv);
-        const keyIv = opensslKdf(s, salt);
-        const key = keyIv.slice(0, 32);
-        const ivBytes = keyIv.slice(32, 48);
+        const linkMatch = html.match(/"link"\s*:\s*"([^"]+)"/);
+        if (linkMatch) {
+            return linkMatch[1];
+        }
         
-        const ciphertext = hexToBytes(ct);
-        const decryptedJson = decryptAES(ciphertext, key, ivBytes);
-        
-        if (!decryptedJson) return null;
-        
-        const jsonData = JSON.parse(decryptedJson);
-        return jsonData.video_location || jsonData.link || null;
+        return null;
     } catch (e) {
         console.error("Extract video location error:", e);
         return null;
